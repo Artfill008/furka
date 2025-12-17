@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
@@ -46,14 +47,15 @@ class MainActivity : ComponentActivity() {
                             SetupScreen(
                                 onSetupComplete = {
                                     // Navigate with a soft physics slide into library.
-                                    navController.navigate("library") {
+                                    navController.navigate("library/true") {
                                         popUpTo("setup") { inclusive = true }
                                     }
                                 }
                             )
                         }
                         composable(
-                            route = "library",
+                            route = "library/{forceScan}",
+                            arguments = listOf(navArgument("forceScan") { defaultValue = "false" }),
                             enterTransition = {
                                 slideInVertically(
                                     animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioLowBouncy),
@@ -66,10 +68,11 @@ class MainActivity : ComponentActivity() {
                                     targetOffsetY = { -it / 3 }
                                 ) + fadeOut()
                             }
-                        ) {
-                            val context = androidx.compose.ui.platform.LocalContext.current
+                        ) { backStackEntry ->
+                            val forceScan = backStackEntry.arguments?.getString("forceScan")?.toBoolean() ?: false
                             LibraryScreen(
-                                onNavigateToPlayer = { navController.navigate("player") }
+                                onNavigateToPlayer = { navController.navigate("player") },
+                                forceScan = forceScan
                             )
                         }
                         

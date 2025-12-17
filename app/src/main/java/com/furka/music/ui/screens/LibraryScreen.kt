@@ -122,7 +122,8 @@ import java.util.concurrent.TimeUnit
 fun LibraryScreen(
     onNavigateToPlayer: () -> Unit,
     viewModel: LibraryViewModel = viewModel(),
-    playerViewModel: PlayerViewModel = viewModel()
+    playerViewModel: PlayerViewModel = viewModel(),
+    forceScan: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playerState by playerViewModel.uiState.collectAsState()
@@ -134,7 +135,7 @@ fun LibraryScreen(
     var currentDragChar by remember { mutableStateOf<Char?>(null) }
     var bubbleYPosition by remember { mutableStateOf(0f) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(forceScan) {
         viewModel.loadLibrary()
     }
 

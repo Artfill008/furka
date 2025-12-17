@@ -24,16 +24,16 @@ import kotlinx.coroutines.launch
  * ═══════════════════════════════════════════════════════════════════════════════
  * PLAYER VIEW MODEL
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
+ *
  * Manages playback UI state with proper slider state decoupling:
- * 
+ *
  * SLIDER LOGIC (Critical Fix):
  * - `sliderPosition`: The value displayed to the user
  * - `isDragging`: Boolean flag
- * 
+ *
  * When isDragging = TRUE  → Display drag value, don't update from player
  * When isDragging = FALSE → Display player current position
- * 
+ *
  * Seek is ONLY called on `onValueChangeFinished`
  */
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -53,18 +53,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         initializeController()
-        
-        // Polling loop for progress (Optimization: Player.Listener onEvents is better but polling is simpler for progress)
+
+        // Polling loop for progress updates. This is a pragmatic choice for smooth UI
+        // when the Player.Listener events for position are not frequent enough.
         viewModelScope.launch {
             while (true) {
-                val player = controller
-                if (player != null && player.isPlaying && !isDraggingSlider) {
-                     _uiState.value = _uiState.value.copy(
-                         currentPosition = player.currentPosition.toFloat(),
-                         duration = player.duration.toFloat().coerceAtLeast(1f)
-                     )
+                if (controller?.isPlaying == true && !isDraggingSlider) {
+                    _uiState.value = _uiState.value.copy(
+                        currentPosition = controller?.currentPosition?.toFloat() ?: _uiState.value.currentPosition
+                    )
                 }
-                delay(100) // 10Hz update
+                delay(200) // 5Hz is enough for smooth progress
             }
         }
     }
@@ -74,18 +73,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             getApplication(),
             android.content.ComponentName(getApplication(), FurkaPlaybackService::class.java)
         )
-        
+
         controllerFuture = MediaController.Builder(getApplication(), sessionToken).buildAsync()
         controllerFuture?.addListener({
             // Controller connected
             setupPlayerListener()
-             // Initial Sync
-             updateUiState()
+            // Initial Sync
+            updateUiState()
         }, MoreExecutors.directExecutor())
     }
 
     private fun setupPlayerListener() {
         controller?.addListener(object : Player.Listener {
+            // onEvents is a catch-all that is perfect for ensuring UI sync
             override fun onEvents(player: Player, events: Player.Events) {
                 updateUiState()
             }
@@ -94,25 +94,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun updateUiState() {
         val player = controller ?: return
-        
-        // Extract current track info from MediaMetadata if available, or maintain what we have.
-        // Ideally we map MediaItem back to AudioTrack, or we store the current domain object separately.
-        // For now, let's keep it simple: We need to parse the MediaItem tag or metadata.
-        // Since we don't have perfect mapping back from MediaItem -> AudioTrack easily without passing IDs, 
-        // we might rely on the fact that we passed the track in.
-        // BUT: For notification sync, reliability comes from the Service state.
-        
-        // Let's rely on the previous logic of setting current track when playing,
-        // and updating status from controller.
-        
-        // Note: Real implementation would query Repository by ID from mediaItem.mediaId
-        
+        val currentMediaItem = player.currentMediaItem
+
+        // Find the current track from our stored playlist. This is crucial for keeping
+        // the UI (title, artist, art) in sync when tracks change automatically.
+        val currentTrack = if (currentMediaItem != null) {
+            _uiState.value.playlist.find { it.id.toString() == currentMediaItem.mediaId }
+        } else {
+            _uiState.value.currentTrack
+        }
+
         _uiState.value = _uiState.value.copy(
             isPlaying = player.isPlaying,
             duration = player.duration.toFloat().coerceAtLeast(1f),
-            playlistSize = player.mediaItemCount
+            playlistSize = player.mediaItemCount,
+            currentTrack = currentTrack,
+            // Only update position from the listener if not dragging, to prevent jumps
+            currentPosition = if (!isDraggingSlider) player.currentPosition.toFloat() else _uiState.value.currentPosition
         )
     }
+
 
     override fun onCleared() {
         super.onCleared()
@@ -124,39 +125,29 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     // ═══════════════════════════════════════════════════════════════════════════
     // PLAYBACK CONTROLS
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     fun playTrack(track: AudioTrack) {
-        val player = controller ?: return
-        val item = MediaItemMapper.mapToMediaItem(track)
-        player.setMediaItem(item)
-        player.prepare()
-        player.play()
-        
-        // Update local state immediately for responsiveness
-        _uiState.value = _uiState.value.copy(
-            currentTrack = track,
-            duration = track.duration.toFloat(),
-            isPlaying = true
-        )
+        playPlaylist(listOf(track), 0)
     }
 
     fun playPlaylist(tracks: List<AudioTrack>, startIndex: Int = 0) {
         val player = controller ?: return
-        
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-             val items = tracks.map { MediaItemMapper.mapToMediaItem(it) }
-             
-             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                 player.setMediaItems(items, startIndex, androidx.media3.common.C.TIME_UNSET)
-                 player.prepare()
-                 player.repeatMode = Player.REPEAT_MODE_ALL
-                 player.play()
-             }
+            val items = tracks.map { MediaItemMapper.mapToMediaItem(it) }
+
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                player.setMediaItems(items, startIndex, androidx.media3.common.C.TIME_UNSET)
+                player.prepare()
+                player.repeatMode = Player.REPEAT_MODE_ALL
+                player.play()
+            }
         }
-        
-        // Optimistic UI update
+
+        // Optimistic UI update and store the playlist for future reference
         if (tracks.isNotEmpty() && startIndex in tracks.indices) {
-             _uiState.value = _uiState.value.copy(
+            _uiState.value = _uiState.value.copy(
+                playlist = tracks, // <-- CRITICAL: Store the playlist
                 currentTrack = tracks[startIndex],
                 duration = tracks[startIndex].duration.toFloat(),
                 isPlaying = true
@@ -167,7 +158,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun shufflePlay(tracks: List<AudioTrack>) {
         val player = controller ?: return
         if (tracks.isEmpty()) return
-        
+
         val shuffled = tracks.shuffled()
         playPlaylist(shuffled, 0)
     }
@@ -183,26 +174,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun skipToNext() {
         controller?.seekToNextMediaItem()
-        // We need to fetch the next item's ID and update currentTrack in UI
-        // In a real app we'd observe MediaItemTransition
+        // UI will update automatically via the Player.Listener calling updateUiState()
     }
 
     fun skipToPrevious() {
         controller?.seekToPreviousMediaItem()
+        // UI will update automatically via the Player.Listener calling updateUiState()
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // SLIDER CONTROLS (Decoupled State)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * Called continuously while user is dragging the slider.
      */
     fun onSliderChange(value: Float) {
         isDraggingSlider = true
-        dragPosition = value
-        // Update UI immediately for responsive feedback
-        _uiState.value = _uiState.value.copy(currentPosition = dragPosition)
+        val newPosition = value * (_uiState.value.duration)
+        _uiState.value = _uiState.value.copy(currentPosition = newPosition)
     }
 
     /**
@@ -210,8 +200,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun onSliderChangeFinished(value: Float) {
         isDraggingSlider = false
-        dragPosition = 0f
-        controller?.seekTo(value.toLong())
+        val newPosition = value * (_uiState.value.duration)
+        controller?.seekTo(newPosition.toLong())
+        // Immediately sync with player position to prevent slider jumping back
+        _uiState.value = _uiState.value.copy(currentPosition = newPosition)
     }
 }
 
@@ -222,5 +214,6 @@ data class PlayerUiState(
     val duration: Float = 1f, // Avoid divide by zero
     val currentTrack: AudioTrack? = null,
     val currentIndex: Int = 0,
-    val playlistSize: Int = 0
+    val playlistSize: Int = 0,
+    val playlist: List<AudioTrack> = emptyList() // Added to resolve track transitions
 )

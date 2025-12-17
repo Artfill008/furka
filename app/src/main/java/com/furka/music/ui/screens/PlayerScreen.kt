@@ -456,6 +456,7 @@ private fun PhysicsGlassButton(
 ) {
     val scope = rememberCoroutineScope()
     val pressProgress = remember { Animatable(0f) }
+    val haptic = LocalHapticFeedback.current
     
     // Physics Spring: Heavy, Rubbery feel
     val springSpec = spring<Float>(
@@ -496,6 +497,8 @@ private fun PhysicsGlassButton(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown()
+                    // Haptic feedback for a more tangible feel
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch { pressProgress.animateTo(1f, springSpec) }
                     
                     waitForUpOrCancellation()

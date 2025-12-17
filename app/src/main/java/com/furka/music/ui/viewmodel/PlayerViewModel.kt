@@ -11,14 +11,14 @@ import com.furka.music.service.FurkaPlaybackService
 import com.furka.music.util.MediaItemMapper
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
  * 
  * Seek is ONLY called on `onValueChangeFinished`
  */
-class PlayerViewModel(application: Application) : AndroidViewModel(application) {
+class PlayerViewModel : AndroidViewModel {
 
     // Media Controller Future
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -49,24 +49,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     // Slider state decoupling
     private var isDraggingSlider = false
-    private var dragPosition: Float = 0f
 
-    init {
+    // Progress polling job
+    private var progressJob: Job? = null
+
+    // Main constructor for the app
+    constructor(application: Application) : super(application) {
         initializeController()
-        
-        // Polling loop for progress (Optimization: Player.Listener onEvents is better but polling is simpler for progress)
-        viewModelScope.launch {
-            while (true) {
-                val player = controller
-                if (player != null && player.isPlaying && !isDraggingSlider) {
-                     _uiState.value = _uiState.value.copy(
-                         currentPosition = player.currentPosition.toFloat(),
-                         duration = player.duration.toFloat().coerceAtLeast(1f)
-                     )
-                }
-                delay(100) // 10Hz update
-            }
-        }
+    }
+
+    // Constructor for testing
+    internal constructor(
+        application: Application,
+        mediaController: MediaController
+    ) : super(application) {
+        this.controllerFuture = com.google.common.util.concurrent.Futures.immediateFuture(mediaController)
+        this.controllerFuture?.addListener({
+            setupPlayerListener()
+            updateUiState()
+        }, com.google.common.util.concurrent.MoreExecutors.directExecutor())
     }
 
     private fun initializeController() {
@@ -86,7 +87,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun setupPlayerListener() {
         controller?.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updateUiState()
+                if (isPlaying) {
+                    startProgressUpdates()
+                } else {
+                    stopProgressUpdates()
+                }
+            }
+
             override fun onEvents(player: Player, events: Player.Events) {
+                // We listen for specific events now, but a general update is fine
+                // for things like media item transitions, timeline changes, etc.
                 updateUiState()
             }
         })
@@ -94,24 +106,22 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun updateUiState() {
         val player = controller ?: return
-        
-        // Extract current track info from MediaMetadata if available, or maintain what we have.
-        // Ideally we map MediaItem back to AudioTrack, or we store the current domain object separately.
-        // For now, let's keep it simple: We need to parse the MediaItem tag or metadata.
-        // Since we don't have perfect mapping back from MediaItem -> AudioTrack easily without passing IDs, 
-        // we might rely on the fact that we passed the track in.
-        // BUT: For notification sync, reliability comes from the Service state.
-        
-        // Let's rely on the previous logic of setting current track when playing,
-        // and updating status from controller.
-        
-        // Note: Real implementation would query Repository by ID from mediaItem.mediaId
-        
+
+        // This is the primary state update from the player's own state.
         _uiState.value = _uiState.value.copy(
             isPlaying = player.isPlaying,
             duration = player.duration.toFloat().coerceAtLeast(1f),
-            playlistSize = player.mediaItemCount
+            playlistSize = player.mediaItemCount,
+            currentTrack = player.currentMediaItem?.let { MediaItemMapper.mapToAudioTrack(it) }
+                ?: _uiState.value.currentTrack
         )
+
+        // If not dragging, ensure slider position reflects player's actual position.
+        if (!isDraggingSlider) {
+            _uiState.value = _uiState.value.copy(
+                currentPosition = player.currentPosition.toFloat()
+            )
+        }
     }
 
     override fun onCleared() {
@@ -198,20 +208,41 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     /**
      * Called continuously while user is dragging the slider.
      */
-    fun onSliderChange(value: Float) {
+    fun onSliderChange(fraction: Float) {
         isDraggingSlider = true
-        dragPosition = value
+        val newPosition = (_uiState.value.duration * fraction)
         // Update UI immediately for responsive feedback
-        _uiState.value = _uiState.value.copy(currentPosition = dragPosition)
+        _uiState.value = _uiState.value.copy(currentPosition = newPosition)
     }
 
     /**
      * Called when user releases the slider.
      */
-    fun onSliderChangeFinished(value: Float) {
+    fun onSliderChangeFinished(fraction: Float) {
+        val seekPosition = (_uiState.value.duration * fraction).toLong()
+        controller?.seekTo(seekPosition)
         isDraggingSlider = false
-        dragPosition = 0f
-        controller?.seekTo(value.toLong())
+    }
+
+    private fun startProgressUpdates() {
+        // Cancel any existing job to prevent multiple coroutines running.
+        stopProgressUpdates()
+        progressJob = viewModelScope.launch {
+            while (isActive) {
+                if (!isDraggingSlider) {
+                    _uiState.value = _uiState.value.copy(
+                        currentPosition = controller?.currentPosition?.toFloat()
+                            ?: _uiState.value.currentPosition
+                    )
+                }
+                delay(200) // 5Hz is plenty for a smooth progress bar.
+            }
+        }
+    }
+
+    private fun stopProgressUpdates() {
+        progressJob?.cancel()
+        progressJob = null
     }
 }
 

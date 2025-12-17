@@ -17,8 +17,16 @@ lifecycleViewModelCompose = "2.6.2"
 coil = "2.5.0"
 palette = "1.0.0"
 googleFonts = "1.6.8"
+mockito = "5.11.0"
+mockitoKotlin = "5.1.0"
+coroutinesTest = "1.8.0"
+coreTesting = "2.2.0"
 
 [libraries]
+androidx-arch-core-testing = { group = "androidx.arch.core", name = "core-testing", version.ref = "coreTesting" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

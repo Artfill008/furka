@@ -3,8 +3,8 @@ package com.furka.music.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.furka.music.data.model.AudioTrack
-import com.furka.music.data.repository.AudioRepository
+import com.furka.music.data.MusicRepository
+import com.furka.music.data.model.Track
 import com.furka.music.util.AlphanumericComparator
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,22 +16,12 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/**
- * ═══════════════════════════════════════════════════════════════════════════════
- * LIBRARY VIEW MODEL
- * ═══════════════════════════════════════════════════════════════════════════════
- * 
- * Manages library state with:
- * - MediaStore audio track loading
- * - Search/filter functionality (by title or artist)
- * - Shuffle support (returns random track)
- */
 sealed interface LibraryUiState {
     object Loading : LibraryUiState
     object PermissionDenied : LibraryUiState
     data class Success(
-        val tracks: List<AudioTrack>,
-        val allTracks: List<AudioTrack>, // Unfiltered for shuffle
+        val tracks: List<Track>,
+        val allTracks: List<Track>, // Unfiltered for shuffle
         val searchQuery: String = "",
         val fastScrollIndex: Map<Char, Int> = emptyMap(),
         val sections: List<Char> = emptyList()
@@ -42,23 +32,19 @@ sealed interface LibraryUiState {
 @OptIn(FlowPreview::class)
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     
-    private val repository = AudioRepository(application)
+    private val repository = MusicRepository(application)
     
-    // All tracks (unfiltered)
-    private val _allTracks = MutableStateFlow<List<AudioTrack>>(emptyList())
+    private val _allTracks = MutableStateFlow<List<Track>>(emptyList())
     
-    // Search query with debounce for performance
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
     
-    // Base UI state
     private val _baseState = MutableStateFlow<BaseState>(BaseState.Loading)
     
-    // Combined UI state with search filtering
     val uiState: StateFlow<LibraryUiState> = combine(
         _baseState,
         _allTracks,
-        _searchQuery.debounce(300) // Debounce search for performance
+        _searchQuery.debounce(300)
     ) { baseState, allTracks, query ->
         when (baseState) {
             is BaseState.Loading -> LibraryUiState.Loading
@@ -76,7 +62,6 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 if (allTracks.isEmpty()) {
                     LibraryUiState.Empty
                 } else {
-                    // Generate Fast Scroll Index for the filtered list
                     val indexMap = mutableMapOf<Char, Int>()
                     val sectionList = mutableListOf<Char>()
                     
@@ -110,7 +95,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _baseState.value = BaseState.Loading
             try {
-                val rawTracks = repository.getAudioTracks()
+                val rawTracks = repository.getAudioFiles()
                 val comparator = AlphanumericComparator()
                 val sortedTracks = rawTracks.sortedWith { t1, t2 -> 
                     comparator.compare(t1.title, t2.title)
@@ -134,10 +119,6 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _baseState.value = BaseState.PermissionDenied
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // SEARCH
-    // ═══════════════════════════════════════════════════════════════════════════
     
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
@@ -146,21 +127,16 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun clearSearch() {
         _searchQuery.value = ""
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // SHUFFLE
-    // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getRandomTrack(): AudioTrack? {
+    fun getRandomTrack(): Track? {
         return _allTracks.value.randomOrNull()
     }
 
-    fun getAllTracks(): List<AudioTrack> {
+    fun getAllTracks(): List<Track> {
         return _allTracks.value
     }
 }
 
-// Internal base state (before search filtering)
 private sealed interface BaseState {
     object Loading : BaseState
     object PermissionDenied : BaseState

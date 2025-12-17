@@ -83,7 +83,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
-import com.furka.music.data.model.AudioTrack
+import com.furka.music.data.model.Track
 import com.furka.music.ui.components.CleanPermissionUI
 import com.furka.music.ui.components.GlassSearchIsland
 import com.furka.music.ui.components.MiniPlayerIsland
@@ -437,7 +437,7 @@ private fun EmptyState() {
 // ═══════════════════════════════════════════════════════════════════════════════
 @Composable
 private fun TrackList(
-    tracks: List<AudioTrack>,
+    tracks: List<Track>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     onTrackClick: (Int) -> Unit,
     modifier: Modifier = Modifier
@@ -504,7 +504,7 @@ private fun LibraryHeader(trackCount: Int) {
 // ═══════════════════════════════════════════════════════════════════════════════
 @Composable
 private fun TrackListItemContent(
-    track: AudioTrack,
+    track: Track,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -544,7 +544,7 @@ private fun TrackListItemContent(
         // Async Real Metadata
         val context = LocalContext.current
         val qualityInfo by androidx.compose.runtime.produceState(initialValue = com.furka.music.data.model.AudioQualityInfo("", "", "...", "FLAC")) {
-            value = com.furka.music.util.MetadataHelper.getAudioQuality(context, track.contentUri)
+            value = com.furka.music.util.MetadataHelper.getAudioQuality(context, track.uri)
         }
 
         Column(horizontalAlignment = Alignment.End) {
@@ -579,7 +579,7 @@ private fun TrackListItemContent(
  */
 @Composable
 private fun LibraryItemSwipe(
-    track: AudioTrack,
+    track: Track,
     onPrimaryAction: () -> Unit,
     onQueueAction: () -> Unit,
     modifier: Modifier = Modifier
@@ -669,7 +669,7 @@ private fun LibraryItemSwipe(
 // ═══════════════════════════════════════════════════════════════════════════════
 @Composable
 private fun AlbumArtThumbnail(
-    albumArtUri: android.net.Uri,
+    albumArtUri: android.net.Uri?,
     modifier: Modifier = Modifier
 ) {
     SubcomposeAsyncImage(

@@ -1,12 +1,15 @@
 package com.furka.music.ui.viewmodel
 
 import android.app.Application
+import android.content.ComponentName
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.furka.music.data.model.AudioTrack
+import com.furka.music.data.model.Track
 import com.furka.music.service.FurkaPlaybackService
 import com.furka.music.util.MediaItemMapper
 import com.google.common.util.concurrent.ListenableFuture
@@ -38,12 +41,14 @@ import kotlinx.coroutines.withContext
  */
 class PlayerViewModel : AndroidViewModel {
 
-    // Media Controller Future
-    private var controllerFuture: ListenableFuture<MediaController>? = null
-    private val controller: MediaController?
-        get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
+data class TrackDetails(
+    val title: String,
+    val artist: String,
+    val albumArtUri: Uri?
+)
 
-    // UI State exposed to the screen
+class PlayerViewModel(application: Application) : AndroidViewModel(application) {
+
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
@@ -75,14 +80,6 @@ class PlayerViewModel : AndroidViewModel {
             getApplication(),
             android.content.ComponentName(getApplication(), FurkaPlaybackService::class.java)
         )
-        
-        controllerFuture = MediaController.Builder(getApplication(), sessionToken).buildAsync()
-        controllerFuture?.addListener({
-            // Controller connected
-            setupPlayerListener()
-             // Initial Sync
-             updateUiState()
-        }, MoreExecutors.directExecutor())
     }
 
     private fun setupPlayerListener() {
@@ -101,7 +98,8 @@ class PlayerViewModel : AndroidViewModel {
                 // for things like media item transitions, timeline changes, etc.
                 updateUiState()
             }
-        })
+            delay(500)
+        }
     }
 
     private fun updateUiState() {
@@ -124,77 +122,74 @@ class PlayerViewModel : AndroidViewModel {
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        controllerFuture?.let {
-            MediaController.releaseFuture(it)
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            updateUiState()
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PLAYBACK CONTROLS
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    fun playTrack(track: AudioTrack) {
-        val player = controller ?: return
-        val item = MediaItemMapper.mapToMediaItem(track)
-        player.setMediaItem(item)
-        player.prepare()
-        player.play()
-        
-        // Update local state immediately for responsiveness
+    private fun updateUiState() {
+        val currentMediaItem = mediaController?.currentMediaItem ?: return
+        val trackDetails = TrackDetails(
+            title = currentMediaItem.mediaMetadata.title?.toString() ?: "Unknown Title",
+            artist = currentMediaItem.mediaMetadata.artist?.toString() ?: "Unknown Artist",
+            albumArtUri = currentMediaItem.mediaMetadata.artworkUri
+        )
         _uiState.value = _uiState.value.copy(
-            currentTrack = track,
-            duration = track.duration.toFloat(),
-            isPlaying = true
+            currentTrack = trackDetails,
+            duration = mediaController?.duration?.toFloat() ?: 1f,
+            currentPosition = mediaController?.currentPosition?.toFloat() ?: 0f
         )
     }
 
-    fun playPlaylist(tracks: List<AudioTrack>, startIndex: Int = 0) {
-        val player = controller ?: return
-        
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-             val items = tracks.map { MediaItemMapper.mapToMediaItem(it) }
-             
-             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                 player.setMediaItems(items, startIndex, androidx.media3.common.C.TIME_UNSET)
-                 player.prepare()
-                 player.repeatMode = Player.REPEAT_MODE_ALL
-                 player.play()
-             }
+    fun playPlaylist(tracks: List<Track>, startIndex: Int) {
+        val mediaItems = tracks.map { track ->
+            MediaItem.Builder()
+                .setUri(track.uri)
+                .setMediaId(track.id.toString())
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setArtworkUri(track.albumArtUri)
+                        .build()
+                )
+                .build()
         }
-        
-        // Optimistic UI update
-        if (tracks.isNotEmpty() && startIndex in tracks.indices) {
-             _uiState.value = _uiState.value.copy(
-                currentTrack = tracks[startIndex],
-                duration = tracks[startIndex].duration.toFloat(),
-                isPlaying = true
-            )
-        }
+        mediaController?.setMediaItems(mediaItems, startIndex, 0)
+        mediaController?.prepare()
+        mediaController?.play()
     }
 
-    fun shufflePlay(tracks: List<AudioTrack>) {
-        val player = controller ?: return
-        if (tracks.isEmpty()) return
-        
-        val shuffled = tracks.shuffled()
-        playPlaylist(shuffled, 0)
+    fun shufflePlay(tracks: List<Track>) {
+        val mediaItems = tracks.map { track ->
+            MediaItem.Builder()
+                .setUri(track.uri)
+                .setMediaId(track.id.toString())
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setArtworkUri(track.albumArtUri)
+                        .build()
+                )
+                .build()
+        }
+        mediaController?.setMediaItems(mediaItems)
+        mediaController?.shuffleModeEnabled = true
+        mediaController?.prepare()
+        mediaController?.play()
     }
 
     fun togglePlayPause() {
-        val player = controller ?: return
-        if (player.isPlaying) {
-            player.pause()
+        if (mediaController?.isPlaying == true) {
+            mediaController?.pause()
         } else {
-            player.play()
+            mediaController?.play()
         }
     }
 
     fun skipToNext() {
-        controller?.seekToNextMediaItem()
-        // We need to fetch the next item's ID and update currentTrack in UI
-        // In a real app we'd observe MediaItemTransition
+        mediaController?.seekToNextMediaItem()
     }
 
     fun skipToPrevious() {
@@ -244,14 +239,14 @@ class PlayerViewModel : AndroidViewModel {
         progressJob?.cancel()
         progressJob = null
     }
+
+    fun onSliderChangeFinished(fraction:Float) {
+        mediaController?.seekTo((fraction * _uiState.value.duration).toLong())
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        mediaController?.release()
+        executor.shutdown()
+    }
 }
-
-
-data class PlayerUiState(
-    val isPlaying: Boolean = false,
-    val currentPosition: Float = 0f,
-    val duration: Float = 1f, // Avoid divide by zero
-    val currentTrack: AudioTrack? = null,
-    val currentIndex: Int = 0,
-    val playlistSize: Int = 0
-)

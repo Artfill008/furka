@@ -67,6 +67,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.palette.graphics.Palette
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.furka.music.ui.components.FrostedGlassText
+import com.furka.music.ui.components.GlassPlayerControl
 import com.furka.music.ui.components.SwipeDismissableContainer
 import com.furka.music.ui.viewmodel.PlayerViewModel
 import com.kyant.backdrop.Backdrop
@@ -275,23 +277,21 @@ fun PlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Track Title - Syne ExtraBold (via theme)
-                Text(
+                FrostedGlassText(
                     text = uiState.currentTrack?.title ?: "No Track",
+                    backdrop = backdrop,
                     style = MaterialTheme.typography.headlineLarge,
                     color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Spacer(modifier = Modifier.height(8.dp))
-                
+
                 // Artist Name - Manrope (via theme)
-                Text(
+                FrostedGlassText(
                     text = uiState.currentTrack?.artist ?: "Select a song",
+                    backdrop = backdrop,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
                 )
             }
             
@@ -304,81 +304,25 @@ fun PlayerScreen(
             val safeDuration = if (uiState.duration > 0) uiState.duration else 1f
             val progress = (uiState.currentPosition / safeDuration).coerceIn(0f, 1f)
 
-            ProductionGlassSlider(
+            GlassPlayerControl(
                 backdrop = backdrop,
-                value = progress,
-                onValueChange = { fraction ->
-                    // fraction in 0f..1f, VM converts to ms internally
+                isPlaying = uiState.isPlaying,
+                onPlayPause = { viewModel.togglePlayPause() },
+                onSkipPrev = { viewModel.skipToPrevious() },
+                onSkipNext = { viewModel.skipToNext() },
+                progress = progress,
+                onSliderChange = { fraction ->
                     viewModel.onSliderChange(fraction)
                 },
-                onValueChangeFinished = { fraction ->
+                onSliderChangeFinished = { fraction ->
                     viewModel.onSliderChangeFinished(fraction)
                 },
                 accentColor = animatedVibrant,
-                modifier = Modifier.fillMaxWidth()
+                currentPosition = uiState.currentPosition.toLong(),
+                duration = uiState.duration.toLong()
             )
-            
-            // Time Labels - Manrope (Technical font)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = formatTime(uiState.currentPosition.toLong()),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.5f)
-                )
-                Text(
-                    text = formatTime(uiState.duration.toLong()),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.5f)
-                )
-            }
-            
+
             Spacer(modifier = Modifier.weight(0.3f))
-            
-            // ═══════════════════════════════════════════════════════════════════
-            // CONTROLS (Jewelry - Glass Bubbles)
-            // ═══════════════════════════════════════════════════════════════════
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Skip Previous
-                PhysicsGlassButton(
-                    backdrop = backdrop,
-                    icon = Icons.Rounded.SkipPrevious,
-                    contentDescription = "Previous",
-                    onClick = { viewModel.skipToPrevious() },
-                    size = 64.dp,
-                    iconSize = 32.dp
-                )
-                
-                // Play/Pause - Centerpiece (Tinted Glass)
-                PhysicsGlassButton(
-                    backdrop = backdrop,
-                    icon = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (uiState.isPlaying) "Pause" else "Play",
-                    onClick = { viewModel.togglePlayPause() },
-                    size = 88.dp,
-                    iconSize = 44.dp,
-                    tint = animatedVibrant,
-                    isCenterpiece = true
-                )
-                
-                // Skip Next
-                PhysicsGlassButton(
-                    backdrop = backdrop,
-                    icon = Icons.Rounded.SkipNext,
-                    contentDescription = "Next",
-                    onClick = { viewModel.skipToNext() },
-                    size = 64.dp,
-                    iconSize = 32.dp
-                )
-            }
             
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -406,7 +350,7 @@ private fun GlassAlbumArt(
                     lens(8.dp.toPx(), 16.dp.toPx())
                 },
                 onDrawSurface = {
-                    drawRect(Color.White.copy(alpha = 0.05f))
+                    drawRect(Color.White.copy(alpha = 0.15f))
                 }
             )
             .clip(RoundedCornerShape(32.dp))
@@ -437,193 +381,4 @@ private fun GlassAlbumArt(
             )
         }
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PHYSICS GLASS BUTTON (Jewelry - Lens Effect + Spring Scale)
-// ═══════════════════════════════════════════════════════════════════════════════
-@Composable
-private fun PhysicsGlassButton(
-    backdrop: Backdrop,
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    size: Dp,
-    iconSize: Dp,
-    tint: Color? = null,
-    isCenterpiece: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    val scope = rememberCoroutineScope()
-    val pressProgress = remember { Animatable(0f) }
-    val haptic = LocalHapticFeedback.current
-    
-    // Physics Spring: Heavy, Rubbery feel
-    val springSpec = spring<Float>(
-        dampingRatio = 0.7f,
-        stiffness = 350f
-    )
-
-    Box(
-        modifier = modifier
-            .size(size)
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { CircleShape },
-                effects = {
-                    vibrancy()
-                    blur(if (isCenterpiece) 12.dp.toPx() else 8.dp.toPx())
-                    lens(
-                        refractionHeight = if (isCenterpiece) 20.dp.toPx() else 12.dp.toPx(),
-                        refractionAmount = if (isCenterpiece) 40.dp.toPx() else 24.dp.toPx()
-                    )
-                },
-                layerBlock = {
-                    // Physics scale in layerBlock: backdrop stays stable
-                    val scale = lerp(1f, 0.88f, pressProgress.value)
-                    scaleX = scale
-                    scaleY = scale
-                },
-                onDrawSurface = {
-                    if (tint != null && isCenterpiece) {
-                        // Tinted glass using BlendMode.Hue
-                        drawRect(tint, blendMode = BlendMode.Hue)
-                        drawRect(tint.copy(alpha = 0.35f))
-                    } else {
-                        drawRect(Color.White.copy(alpha = 0.12f))
-                    }
-                }
-            )
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown()
-                    // Haptic feedback for a more tangible feel
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch { pressProgress.animateTo(1f, springSpec) }
-                    
-                    waitForUpOrCancellation()
-                    onClick()
-                    scope.launch { pressProgress.animateTo(0f, springSpec) }
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(iconSize)
-        )
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PRODUCTION GLASS SLIDER (Jewelry - Combined Backdrop Refraction)
-// ═══════════════════════════════════════════════════════════════════════════════
-@Composable
-private fun ProductionGlassSlider(
-    backdrop: Backdrop,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    onValueChangeFinished: (Float) -> Unit,
-    accentColor: Color,
-    modifier: Modifier = Modifier
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    
-    BoxWithConstraints(
-        modifier = modifier.height(48.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        val trackBackdrop = rememberLayerBackdrop()
-        val combinedBackdrop = rememberCombinedBackdrop(backdrop, trackBackdrop)
-        
-        val trackWidth = constraints.maxWidth.toFloat()
-        val thumbWidth = with(density) { 48.dp.toPx() }
-        val maxOffset = trackWidth - thumbWidth
-        
-        // Track Background
-        Box(
-            modifier = Modifier
-                .layerBackdrop(trackBackdrop)
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.15f))
-        ) {
-            // Active track fill
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(value)
-                    .height(4.dp)
-                    .background(accentColor.copy(alpha = 0.6f), CircleShape)
-            )
-        }
-        
-        // Glass Thumb
-        val xOffset = with(density) { (maxOffset * value).toDp() }
-        
-        Box(
-            modifier = Modifier
-                .padding(start = xOffset)
-                .size(48.dp, 28.dp)
-                .drawBackdrop(
-                    backdrop = combinedBackdrop,
-                    shape = { CircleShape },
-                    effects = {
-                        lens(
-                            refractionHeight = 10.dp.toPx(),
-                            refractionAmount = 14.dp.toPx(),
-                            chromaticAberration = true
-                        )
-                    },
-                    onDrawSurface = {
-                        drawRect(Color.White.copy(alpha = 0.08f))
-                    }
-                )
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        var currentX = down.position.x + (maxOffset * value)
-                        var lastHapticValue = value
-                        
-                        // Haptic on grab
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        
-                        do {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull()
-                            if (change != null && change.pressed) {
-                                val delta = change.positionChange()
-                                currentX += delta.x
-                                val newValue = (currentX / maxOffset).coerceIn(0f, 1f)
-                                
-                                // Haptic tick every 5% of progress
-                                if (kotlin.math.abs(newValue - lastHapticValue) > 0.05f) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    lastHapticValue = newValue
-                                }
-                                
-                                onValueChange(newValue)
-                                change.consume()
-                            }
-                        } while (event.changes.any { it.pressed })
-                        
-                        // Finished
-                        val finalValue = (currentX / maxOffset).coerceIn(0f, 1f)
-                        onValueChangeFinished(finalValue)
-                    }
-                }
-        )
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// UTILITIES
-// ═══════════════════════════════════════════════════════════════════════════════
-private fun formatTime(millis: Long): String {
-    val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
-    val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
-    return String.format("%d:%02d", minutes, seconds)
 }

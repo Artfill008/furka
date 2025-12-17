@@ -51,22 +51,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var isDraggingSlider = false
     private var dragPosition: Float = 0f
 
+    // In-memory playlist
+    private var currentPlaylist: List<AudioTrack> = emptyList()
+
     init {
         initializeController()
-        
-        // Polling loop for progress (Optimization: Player.Listener onEvents is better but polling is simpler for progress)
-        viewModelScope.launch {
-            while (true) {
-                val player = controller
-                if (player != null && player.isPlaying && !isDraggingSlider) {
-                     _uiState.value = _uiState.value.copy(
-                         currentPosition = player.currentPosition.toFloat(),
-                         duration = player.duration.toFloat().coerceAtLeast(1f)
-                     )
-                }
-                delay(100) // 10Hz update
-            }
-        }
     }
 
     private fun initializeController() {
@@ -86,10 +75,31 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun setupPlayerListener() {
         controller?.addListener(object : Player.Listener {
-            override fun onEvents(player: Player, events: Player.Events) {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updateUiState()
+                if (isPlaying) {
+                    startProgressUpdates()
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 updateUiState()
             }
         })
+    }
+
+    private fun startProgressUpdates() {
+        viewModelScope.launch {
+            while (controller?.isPlaying == true) {
+                if (!isDraggingSlider) {
+                    _uiState.value = _uiState.value.copy(
+                        currentPosition = controller?.currentPosition?.toFloat() ?: 0f,
+                        duration = controller?.duration?.toFloat()?.coerceAtLeast(1f) ?: 1f
+                    )
+                }
+                delay(100)
+            }
+        }
     }
 
     private fun updateUiState() {
@@ -106,11 +116,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         // and updating status from controller.
         
         // Note: Real implementation would query Repository by ID from mediaItem.mediaId
+        val currentMediaId = player.currentMediaItem?.mediaId?.toLongOrNull()
+        val currentTrack = currentPlaylist.find { it.id == currentMediaId }
         
         _uiState.value = _uiState.value.copy(
             isPlaying = player.isPlaying,
             duration = player.duration.toFloat().coerceAtLeast(1f),
-            playlistSize = player.mediaItemCount
+            playlistSize = player.mediaItemCount,
+            currentTrack = currentTrack ?: _uiState.value.currentTrack
         )
     }
 
@@ -127,6 +140,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     
     fun playTrack(track: AudioTrack) {
         val player = controller ?: return
+        currentPlaylist = listOf(track)
         val item = MediaItemMapper.mapToMediaItem(track)
         player.setMediaItem(item)
         player.prepare()
@@ -142,6 +156,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun playPlaylist(tracks: List<AudioTrack>, startIndex: Int = 0) {
         val player = controller ?: return
+        currentPlaylist = tracks
         
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
              val items = tracks.map { MediaItemMapper.mapToMediaItem(it) }

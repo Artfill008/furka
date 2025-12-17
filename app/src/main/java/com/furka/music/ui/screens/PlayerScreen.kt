@@ -406,7 +406,7 @@ private fun GlassAlbumArt(
                     lens(8.dp.toPx(), 16.dp.toPx())
                 },
                 onDrawSurface = {
-                    drawRect(Color.White.copy(alpha = 0.05f))
+                    drawRect(Color.White.copy(alpha = 0.15f))
                 }
             )
             .clip(RoundedCornerShape(32.dp))
@@ -488,9 +488,9 @@ private fun PhysicsGlassButton(
                     if (tint != null && isCenterpiece) {
                         // Tinted glass using BlendMode.Hue
                         drawRect(tint, blendMode = BlendMode.Hue)
-                        drawRect(tint.copy(alpha = 0.35f))
+                        drawRect(tint.copy(alpha = 0.5f))
                     } else {
-                        drawRect(Color.White.copy(alpha = 0.12f))
+                        drawRect(Color.White.copy(alpha = 0.2f))
                     }
                 }
             )
@@ -498,7 +498,7 @@ private fun PhysicsGlassButton(
                 awaitEachGesture {
                     awaitFirstDown()
                     // Haptic feedback for a more tangible feel
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
                     scope.launch { pressProgress.animateTo(1f, springSpec) }
                     
                     waitForUpOrCancellation()
@@ -579,7 +579,7 @@ private fun ProductionGlassSlider(
                         )
                     },
                     onDrawSurface = {
-                        drawRect(Color.White.copy(alpha = 0.08f))
+                        drawRect(Color.White.copy(alpha = 0.2f))
                     }
                 )
                 .pointerInput(Unit) {

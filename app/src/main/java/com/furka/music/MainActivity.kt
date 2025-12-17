@@ -67,8 +67,12 @@ class MainActivity : ComponentActivity() {
                                 ) + fadeOut()
                             }
                         ) {
-                            val context = androidx.compose.ui.platform.LocalContext.current
+                            val viewModel: com.furka.music.ui.viewmodel.LibraryViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            androidx.compose.runtime.LaunchedEffect(Unit) {
+                                viewModel.loadLibrary()
+                            }
                             LibraryScreen(
+                                viewModel = viewModel,
                                 onNavigateToPlayer = { navController.navigate("player") }
                             )
                         }

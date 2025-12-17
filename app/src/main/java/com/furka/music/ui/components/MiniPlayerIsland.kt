@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.furka.music.data.model.AudioTrack
+import com.furka.music.ui.viewmodel.TrackDetails
 import com.furka.music.ui.modifiers.elasticDrag
 import com.furka.music.ui.modifiers.elasticGesture
 import com.furka.music.ui.theme.SyneFont
@@ -63,7 +63,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MiniPlayerIsland(
     backdrop: Backdrop,
-    currentTrack: AudioTrack?,
+    currentTrack: TrackDetails?,
     isPlaying: Boolean,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
